@@ -1,0 +1,1057 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Chaos Circuit — Fancy</title>
+
+  <!-- Tailwind CDN (for quick styling) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* extra visual flourishes */
+    body { background: linear-gradient(180deg,#030313 0%, #061022 60%); color: #ecf8ff; min-height:100vh; }
+    .glass { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.04); backdrop-filter: blur(6px); }
+    .neon-border { box-shadow: 0 6px 30px rgba(0,200,255,0.06), inset 0 1px 0 rgba(255,255,255,0.02); }
+    .btn-neon { background: linear-gradient(90deg,#00d4ff,#2be6a6); color:#021018; font-weight:600; }
+    .pulse {
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.03); opacity: 0.92; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    /* finish screen animation: big cars float-in */
+    .car-big { font-size: 64px; transform: translateY(80px); opacity: 0; animation: carFloat 800ms forwards; }
+    .car-big.delay-1 { animation-delay: 120ms; }
+    .car-big.delay-2 { animation-delay: 240ms; }
+    .car-big.delay-3 { animation-delay: 360ms; }
+    @keyframes carFloat {
+      to { transform: translateY(0); opacity: 1; }
+    }
+    /* small canvas border glow */
+    #gameCanvas { border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.6); }
+    /* leaderboard style */
+    .lb-item { background: rgba(255,255,255,0.02); padding:6px 8px; border-radius:6px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
+    /* responsive adjustments */
+    @media (max-width: 900px) {
+      #leftCol { display: none; }
+    }
+  </style>
+</head>
+<body class="antialiased">
+
+  <header class="flex items-center justify-between px-6 py-4">
+    <div class="flex items-center gap-4">
+      <div class="text-2xl font-extrabold tracking-tight">Chaos Circuit</div>
+      <div class="text-sm text-slate-300 hidden md:block">Neon local build — single file</div>
+    </div>
+    <div class="flex items-center gap-3">
+      <div id="rankPill" class="glass px-3 py-1 rounded-full text-sm">Rank: Rookie Driver</div>
+      <div id="coinsPill" class="glass px-3 py-1 rounded-full text-sm">Coins: 0</div>
+      <button onclick="openPanel('profile')" class="btn-neon px-3 py-1 rounded-md text-sm">Profile</button>
+      <button onclick="openPanel('garage')" class="glass px-3 py-1 rounded-md text-sm">Garage</button>
+      <button onclick="openPanel('shop')" class="glass px-3 py-1 rounded-md text-sm">Shop</button>
+      <button onclick="openPanel('spin')" class="glass px-3 py-1 rounded-md text-sm">Lucky Spin</button>
+      <button onclick="startRace()" class="btn-neon px-4 py-2 rounded-md text-sm font-bold">Play</button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-6">
+    <div class="grid grid-cols-12 gap-6">
+      <!-- left column (controls/menus) -->
+      <div id="leftCol" class="col-span-4 space-y-4">
+        <div class="glass p-4 rounded-xl neon-border">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="font-semibold">Quick Menu</div>
+              <div class="text-xs text-slate-300">Start, shop, garage and spin</div>
+            </div>
+            <div>
+              <button onclick="startRace()" class="btn-neon px-3 py-1 rounded-md text-sm">Start Race</button>
+            </div>
+          </div>
+          <div class="mt-4 grid grid-cols-1 gap-3">
+            <button onclick="openPanel('shop')" class="glass p-3 rounded-md text-left">🛒 Shop — Buy cars, tires, tracks</button>
+            <button onclick="openPanel('garage')" class="glass p-3 rounded-md text-left">🧰 Garage — Equip and view</button>
+            <button onclick="openPanel('spin')" class="glass p-3 rounded-md text-left">🎡 Lucky Spin — Free every 10h</button>
+            <button onclick="openPanel('profile')" class="glass p-3 rounded-md text-left">👤 Profile — Set name & titles</button>
+          </div>
+        </div>
+
+        <div class="glass p-4 rounded-xl neon-border">
+          <div class="font-semibold">Info</div>
+          <div class="text-sm text-slate-300 mt-2">Players per race: <b>5</b></div>
+          <div class="text-sm text-slate-300 mt-1">Laps default: <b id="lapsLabel">3</b></div>
+          <div class="text-sm text-slate-300 mt-1">Knockback: <b>5</b></div>
+        </div>
+
+        <div class="glass p-4 rounded-xl neon-border">
+          <div class="font-semibold">Live Leaderboard</div>
+          <div id="leaderbox" class="mt-3 space-y-2"></div>
+        </div>
+
+        <div class="glass p-4 rounded-xl neon-border">
+          <div class="font-semibold">Tips</div>
+          <ul class="text-sm text-slate-300 mt-2 list-disc list-inside">
+            <li>Use WASD or Arrow keys to drive.</li>
+            <li>Exclusive names unlock special cars/tracks.</li>
+            <li>Big Bad Boy can spawn on Neon Highway (15%).</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- right column (game + panels) -->
+      <div class="col-span-8 space-y-4">
+        <!-- game panel -->
+        <div class="glass p-4 rounded-xl neon-border relative">
+          <div class="flex items-start justify-between">
+            <div>
+              <div class="text-lg font-semibold">Race</div>
+              <div class="text-sm text-slate-300">Drive & compete — WASD or Arrow keys</div>
+            </div>
+            <div class="flex items-center gap-3">
+              <div id="hudTrack" class="glass px-3 py-1 rounded-full text-sm">Track: —</div>
+              <div id="hudLap" class="glass px-3 py-1 rounded-full text-sm">Lap 0/0</div>
+              <div id="hudBuff" class="glass px-3 py-1 rounded-full text-sm">Buff x1</div>
+              <button onclick="endRaceToMenu()" class="glass px-3 py-1 rounded-md">Menu</button>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <canvas id="gameCanvas" width="1000" height="600"></canvas>
+          </div>
+        </div>
+
+        <!-- dynamic panels (shop, garage, profile, spin) -->
+        <div id="panelArea" class="grid grid-cols-1 gap-4"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- finish modal -->
+  <div id="finishModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50">
+    <div class="bg-[#07131A] rounded-2xl p-6 w-[820px] neon-border">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 id="finishTitle" class="text-2xl font-bold">Race finished</h2>
+          <div id="finishSub" class="text-sm text-slate-300 mt-1"></div>
+        </div>
+        <div>
+          <button onclick="closeFinish()" class="btn-neon px-4 py-2 rounded-md">Close</button>
+        </div>
+      </div>
+
+      <div class="mt-4 flex gap-4 justify-center items-center">
+        <div class="car-big delay-1">🏎️</div>
+        <div class="car-big delay-2">🚗</div>
+        <div class="car-big delay-3">🚙</div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="font-semibold">Results</h3>
+        <table class="w-full mt-2 text-left">
+          <thead>
+            <tr class="text-slate-300/80"><th class="py-2">Place</th><th class="py-2">Name</th><th class="py-2">Laps</th></tr>
+          </thead>
+          <tbody id="resultsTable" class="align-top"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tailwind + app logic -->
+  <script>
+  /* ===============================
+     Chaos Circuit — Fancy Single File
+     - Movement fixed (WASD + Arrows)
+     - Profile, Shop, Garage, Lucky Spin
+     - AI with rank scaling, knockback, waypoints
+     - Big Bad Boy event on Neon Highway (15%)
+     - Persistence via localStorage
+     =============================== */
+
+  /* ----------- Persistence ---------- */
+  const STORAGE_KEY = 'chaos_circuit_fancy_v1';
+  const DEFAULT_SAVE = {
+    name: '', coins: 2000, wins: 0, races: 0, titles: [],
+    cars: ['gold'], tires: ['Standard'], drivers: ['Default Driver'], tracks: ['Inferno Hell'],
+    equip: { car:'gold', tire:'Standard', driver:'Default Driver', track:'Inferno Hell' },
+    buffs: { money:1, nextSpinAt: 0 }, activeTitle: ''
+  };
+  let SAVE = loadSave() || JSON.parse(JSON.stringify(DEFAULT_SAVE));
+  function loadSave(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'null'); }catch(e){ return null; } }
+  function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(SAVE)); updateHeader(); }
+
+  /* ---------- Databases ---------- */
+  const carsDB = {
+    gold:{label:'Gold', base:2.6, color:'#E1C100', price:800},
+    emerald:{label:'Emerald', base:3.0, color:'#00CC66', price:1200},
+    diamond:{label:'Diamond', base:3.4, color:'#8AE0FF', price:2200},
+    flame:{label:'Flame', base:3.8, color:'#FF2A2A', price:3100},
+    crystal:{label:'Crystal', base:4.1, color:'#66E0FF', price:4200},
+    lava:{label:'Lava', base:4.4, color:'#FF7A00', price:0, exclusive:'SupaRed'},
+    void:{label:'Void', base:4.7, color:'#3B0066', price:0, exclusive:'emodudewihpower'},
+    admin:{label:'Admin', base:5.1, color:'#111111', stripe:'#FF1133', price:0, exclusive:'ownedkid'}
+  };
+  const tiresDB = {
+    'Standard':{label:'Standard', mult:1.0, price:0},
+    'Hard Tires':{label:'Hard Tires', mult:1.05, price:200},
+    'Super Tires':{label:'Super Tires', mult:1.12, price:500},
+    'Danger Tires':{label:'Danger Tires', mult:1.20, price:900},
+    'Spinny McWheeley':{label:'Spinny McWheeley', mult:1.30, price:0, spin:true},
+    'Shadow Tire':{label:'Shadow Tire', mult:1.45, price:0, spin:true},
+    'Big Bad Tires':{label:'Big Bad Tires', mult:1.50, price:0, drop:true}
+  };
+  const driversDB = {
+    'Default Driver':{label:'Default Driver', moneyMult:1.0},
+    'Max Verstappen':{label:'Max Verstappen', moneyMult:1.25},
+    'Fernando Alonso':{label:'Fernando Alonso', moneyMult:1.20},
+    'Charles Leclerc':{label:'Charles Leclerc', moneyMult:1.15},
+    'Lewis Hamilton':{label:'Lewis Hamilton', moneyMult:1.15},
+    'Lando Norris':{label:'Lando Norris', moneyMult:1.10},
+    'Spinner The Winner':{label:'Spinner The Winner', moneyMult:1.12}
+  };
+  const tracksDB = {
+    'Inferno Hell':{diff:1, price:0, reward:120},
+    'Ice Island':{diff:2, price:300, reward:150},
+    'Cityway':{diff:2, price:400, reward:170},
+    'Countryside':{diff:1, price:500, reward:190},
+    'Caveing Arena':{diff:3, price:700, reward:230},
+    'Neon Highway':{diff:4, price:900, reward:260},
+    'Desert Mirage':{diff:3, price:1100, reward:300},
+    'Storm Peak':{diff:4, price:1400, reward:360},
+    'Aqua Docks':{diff:2, price:800, reward:220},
+    'Construction Zone':{diff:3, price:0, reward:280, exclusive:'builderbob'}
+  };
+
+  const RANKS = ['Rookie Driver','Amateur Cruiser','Speed Demon','Master Controller','Turbo Legend','Royal Racer','FlashPoint','Supreme Champion','The OG GOAT','MAX VERSTAPPEN'];
+  const AI_PREFIX = ["Shadow","Turbo","Neon","Drift","Asphalt","Jet","Nitro","Ghost","Blaze","Ice","Neo","Vortex"];
+  const AI_SUFFIX = ["Runner","Fang","Storm","Rider","Viper","Blade","Knight","Racer","Fury","Spectre","Bolt","Pulse"];
+
+  /* ---------- UI refs ---------- */
+  const panelArea = document.getElementById('panelArea');
+  const coinsPill = document.getElementById('coinsPill');
+  const rankPill = document.getElementById('rankPill');
+  const hudTrack = document.getElementById('hudTrack');
+  const hudLap = document.getElementById('hudLap');
+  const hudBuff = document.getElementById('hudBuff');
+  const leaderbox = document.getElementById('leaderbox');
+  const lapsLabel = document.getElementById('lapsLabel');
+
+  /* ---------- Save/load helpers ---------- */
+  function updateHeader(){
+    coinsPill.textContent = `Coins: ${formatNum(SAVE.coins)}`;
+    rankPill.textContent = `Rank: ${getRankName()}`;
+    hudBuff.textContent = `Buff x${SAVE.buffs.money||1}`;
+    hudTrack.textContent = `Track: ${SAVE.equip.track || '—'}`;
+    save();
+  }
+  function formatNum(n){ return Number.isFinite(n)? n.toLocaleString() : '∞'; }
+  function getRankName(){ const idx = Math.min(RANKS.length-1, Math.floor(SAVE.wins/5)); return RANKS[idx]; }
+
+  /* ---------- Panels: Profile / Shop / Garage / Spin ---------- */
+  function openPanel(name){
+    renderPanel(name);
+  }
+
+  function renderPanel(name){
+    panelArea.innerHTML = ''; // clear
+    if(name === 'profile'){
+      panelArea.innerHTML = profileHTML();
+      document.getElementById('profile_name').value = SAVE.name;
+      document.getElementById('profile_coins').textContent = formatNum(SAVE.coins);
+      document.getElementById('profile_wins').textContent = SAVE.wins;
+      document.getElementById('profile_races').textContent = SAVE.races;
+      document.getElementById('profile_rank').textContent = getRankName();
+      // titles
+      const tbox = document.getElementById('titleList');
+      tbox.innerHTML = SAVE.titles.length ? SAVE.titles.map(t => `<button class="py-1 px-2 rounded-md glass text-sm mr-2" onclick="equipTitle('${t}')">${t}</button>`).join(' ') : `<div class="text-sm text-slate-400">No titles</div>`;
+      return;
+    }
+    if(name === 'shop'){
+      panelArea.innerHTML = shopHTML();
+      renderShopItems();
+      return;
+    }
+    if(name === 'garage'){
+      panelArea.innerHTML = garageHTML();
+      renderGarage();
+      return;
+    }
+    if(name === 'spin'){
+      panelArea.innerHTML = spinHTML();
+      updateSpinUI();
+      return;
+    }
+  }
+
+  /* small UI markup functions */
+  function profileHTML(){ return `
+    <div class="glass p-4 rounded-xl neon-border">
+      <div class="flex justify-between items-center">
+        <div>
+          <div class="text-xl font-semibold">Profile</div>
+          <div class="text-sm text-slate-300">Set name, view stats and equip titles</div>
+        </div>
+        <div><button class="btn-neon px-3 py-1 rounded-md" onclick="closePanels()">Close</button></div>
+      </div>
+      <div class="mt-4 grid grid-cols-2 gap-4">
+        <div class="p-3 glass rounded-lg">
+          <label class="text-sm text-slate-300">Display name</label>
+          <input id="profile_name" class="mt-2 w-full p-2 bg-transparent border border-white/5 rounded-md" placeholder="Enter name..." />
+          <div class="mt-3 flex gap-2">
+            <button class="btn-neon px-3 py-1 rounded-md" onclick="saveProfile()">Save</button>
+            <button class="glass px-3 py-1 rounded-md" onclick="resetName()">Reset</button>
+          </div>
+          <div class="mt-3 text-sm text-slate-400">Exclusive names unlock special items.</div>
+        </div>
+        <div class="p-3 glass rounded-lg">
+          <div class="text-sm text-slate-300">Stats</div>
+          <div class="mt-2 text-sm"><b>Coins:</b> <span id="profile_coins"></span></div>
+          <div class="mt-1 text-sm"><b>Wins:</b> <span id="profile_wins"></span></div>
+          <div class="mt-1 text-sm"><b>Races:</b> <span id="profile_races"></span></div>
+          <div class="mt-1 text-sm"><b>Rank:</b> <span id="profile_rank"></span></div>
+        </div>
+      </div>
+      <div class="mt-4 p-3 glass rounded-lg">
+        <div class="text-sm text-slate-300">Titles</div>
+        <div id="titleList" class="mt-2"></div>
+      </div>
+    </div>
+  `;}
+
+  function shopHTML(){ return `
+    <div class="glass p-4 rounded-xl neon-border">
+      <div class="flex justify-between items-center">
+        <div>
+          <div class="text-xl font-semibold">Shop</div>
+          <div class="text-sm text-slate-300">Buy non-exclusive cars, tires, drivers & tracks</div>
+        </div>
+        <div><button class="glass px-3 py-1 rounded-md" onclick="closePanels()">Close</button></div>
+      </div>
+      <div class="mt-4 grid grid-cols-1 gap-4">
+        <div>
+          <div class="text-sm font-semibold">Cars</div>
+          <div id="shopCars" class="mt-2 grid grid-cols-2 gap-3"></div>
+        </div>
+        <div>
+          <div class="text-sm font-semibold">Tires</div>
+          <div id="shopTires" class="mt-2 grid grid-cols-2 gap-3"></div>
+        </div>
+        <div>
+          <div class="text-sm font-semibold">Tracks</div>
+          <div id="shopTracks" class="mt-2 grid grid-cols-2 gap-3"></div>
+        </div>
+        <div>
+          <div class="text-sm font-semibold">Drivers</div>
+          <div id="shopDrivers" class="mt-2 grid grid-cols-2 gap-3"></div>
+        </div>
+      </div>
+    </div>
+  `;}
+
+  function garageHTML(){ return `
+    <div class="glass p-4 rounded-xl neon-border">
+      <div class="flex justify-between items-center">
+        <div>
+          <div class="text-xl font-semibold">Garage</div>
+          <div class="text-sm text-slate-300">Equip owned cars / tires / drivers / tracks</div>
+        </div>
+        <div><button class="glass px-3 py-1 rounded-md" onclick="closePanels()">Close</button></div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-2 gap-4">
+        <div class="p-3 glass rounded-lg">
+          <div class="text-sm text-slate-300">Owned Cars</div>
+          <div id="ownedCars" class="mt-2 flex flex-wrap gap-2"></div>
+        </div>
+        <div class="p-3 glass rounded-lg">
+          <div class="text-sm text-slate-300">Owned Tires</div>
+          <div id="ownedTires" class="mt-2 flex flex-wrap gap-2"></div>
+        </div>
+        <div class="p-3 glass rounded-lg">
+          <div class="text-sm text-slate-300">Owned Drivers</div>
+          <div id="ownedDrivers" class="mt-2 flex flex-wrap gap-2"></div>
+        </div>
+        <div class="p-3 glass rounded-lg">
+          <div class="text-sm text-slate-300">Owned Tracks</div>
+          <div id="ownedTracks" class="mt-2 flex flex-wrap gap-2"></div>
+        </div>
+      </div>
+
+      <div class="mt-4 p-3 glass rounded-lg">
+        <div class="text-sm">Equipped</div>
+        <div class="mt-2 text-sm"><b>Car:</b> <span id="equippedCar"></span></div>
+        <div class="mt-1 text-sm"><b>Tire:</b> <span id="equippedTire"></span></div>
+        <div class="mt-1 text-sm"><b>Driver:</b> <span id="equippedDriver"></span></div>
+        <div class="mt-1 text-sm"><b>Track:</b> <span id="equippedTrack"></span></div>
+      </div>
+    </div>
+  `;}
+
+  function spinHTML(){ return `
+    <div class="glass p-4 rounded-xl neon-border">
+      <div class="flex justify-between items-center">
+        <div>
+          <div class="text-xl font-semibold">Lucky Spin</div>
+          <div class="text-sm text-slate-300">Free every 10 hours — spin to win</div>
+        </div>
+        <div><button class="glass px-3 py-1 rounded-md" onclick="closePanels()">Close</button></div>
+      </div>
+
+      <div class="mt-4 p-3 glass rounded-lg">
+        <div class="text-sm text-slate-300">Possible rewards</div>
+        <ul class="mt-2 text-sm text-slate-300 list-disc list-inside">
+          <li>💰 5× money (next race)</li>
+          <li>💵 500 coins</li>
+          <li>👤 Driver: Spinner The Winner</li>
+          <li>🛞 Spinny McWheeley (+30% tire)</li>
+          <li>🛞 Shadow Tire (+45% tire)</li>
+        </ul>
+
+        <div class="mt-4 flex items-center gap-3">
+          <button id="spin_action" class="btn-neon px-4 py-2 rounded-md" onclick="performSpin()">Spin</button>
+          <div id="spin_status" class="text-sm text-slate-300">Status</div>
+        </div>
+        <div id="spin_result" class="mt-3 text-sm text-slate-200"></div>
+      </div>
+    </div>
+  `;}
+
+  function closePanels(){ panelArea.innerHTML = ''; }
+
+  /* ---------- Shop rendering & purchases ---------- */
+  function renderShopItems(){
+    // cars
+    const carsEl = document.getElementById('shopCars');
+    carsEl.innerHTML = '';
+    for(const id in carsDB){
+      const c = carsDB[id];
+      if(c.exclusive) continue; // exclusive not sold in shop
+      if(SAVE.cars.includes(id)) continue;
+      const div = document.createElement('div'); div.className = 'glass p-3 rounded-lg';
+      div.innerHTML = `<div class="flex justify-between items-center">
+        <div>
+          <div class="font-semibold">${c.label}</div>
+          <div class="text-xs text-slate-300">Speed ${c.base.toFixed(1)}</div>
+        </div>
+        <div class="text-right">
+          <div class="text-sm font-bold">${c.price}</div>
+          <button class="mt-2 btn-neon px-2 py-1 rounded-md" onclick="buy('car','${id}',${c.price})">Buy</button>
+        </div>
+      </div>`;
+      carsEl.appendChild(div);
+    }
+
+    // tires
+    const tiresEl = document.getElementById('shopTires');
+    tiresEl.innerHTML = '';
+    for(const id in tiresDB){
+      const t = tiresDB[id];
+      if(t.spin || t.drop) continue;
+      if(SAVE.tires.includes(id)) continue;
+      const div = document.createElement('div'); div.className = 'glass p-3 rounded-lg';
+      div.innerHTML = `<div class="flex justify-between items-center">
+        <div><div class="font-semibold">${t.label}</div><div class="text-xs text-slate-300">x${t.mult.toFixed(2)}</div></div>
+        <div class="text-right"><div class="text-sm font-bold">${t.price}</div><button class="mt-2 btn-neon px-2 py-1 rounded-md" onclick="buy('tire','${id}',${t.price})">Buy</button></div>
+      </div>`;
+      tiresEl.appendChild(div);
+    }
+
+    // tracks
+    const tracksEl = document.getElementById('shopTracks');
+    tracksEl.innerHTML = '';
+    for(const id in tracksDB){
+      const t = tracksDB[id];
+      if(t.exclusive) continue;
+      if(SAVE.tracks.includes(id)) continue;
+      const div = document.createElement('div'); div.className = 'glass p-3 rounded-lg';
+      div.innerHTML = `<div class="flex justify-between items-center">
+        <div><div class="font-semibold">${id}</div><div class="text-xs text-slate-300">Diff ${t.diff}</div></div>
+        <div class="text-right"><div class="text-sm font-bold">${t.price}</div><button class="mt-2 btn-neon px-2 py-1 rounded-md" onclick="buy('track','${id}',${t.price})">Buy</button></div>
+      </div>`;
+      tracksEl.appendChild(div);
+    }
+
+    // drivers
+    const driversEl = document.getElementById('shopDrivers');
+    driversEl.innerHTML = '';
+    for(const id in driversDB){
+      if(SAVE.drivers.includes(id)) continue;
+      const dr = driversDB[id];
+      const price = 600;
+      const div = document.createElement('div'); div.className = 'glass p-3 rounded-lg';
+      div.innerHTML = `<div class="flex justify-between items-center">
+        <div><div class="font-semibold">${dr.label}</div><div class="text-xs text-slate-300">x${dr.moneyMult}</div></div>
+        <div class="text-right"><div class="text-sm font-bold">${price}</div><button class="mt-2 btn-neon px-2 py-1 rounded-md" onclick="buy('driver','${id}',${price})">Buy</button></div>
+      </div>`;
+      driversEl.appendChild(div);
+    }
+  }
+
+  function buy(kind, id, price){
+    if(SAVE.coins < price) return alert('Not enough coins');
+    SAVE.coins -= price;
+    if(kind==='car') SAVE.cars.push(id);
+    if(kind==='tire') SAVE.tires.push(id);
+    if(kind==='track') SAVE.tracks.push(id);
+    if(kind==='driver') SAVE.drivers.push(id);
+    save(); renderShopItems(); renderGarage();
+    alert('Purchased: ' + id);
+  }
+
+  /* ---------- Garage rendering ---------- */
+  function renderGarage(){
+    if(!document.getElementById('ownedCars')) return;
+    document.getElementById('ownedCars').innerHTML = '';
+    for(const c of SAVE.cars){
+      const label = carsDB[c]?.label || c;
+      const btn = document.createElement('button'); btn.className='py-1 px-2 glass rounded-md';
+      btn.innerText = (SAVE.equip.car===c ? '✓ ' : '') + label;
+      btn.onclick = ()=>{ SAVE.equip.car = c; save(); renderGarage(); };
+      document.getElementById('ownedCars').appendChild(btn);
+    }
+    document.getElementById('ownedTires').innerHTML = '';
+    for(const t of SAVE.tires){
+      const btn = document.createElement('button'); btn.className='py-1 px-2 glass rounded-md';
+      btn.innerText = (SAVE.equip.tire===t ? '✓ ' : '') + t;
+      btn.onclick = ()=>{ SAVE.equip.tire = t; save(); renderGarage(); };
+      document.getElementById('ownedTires').appendChild(btn);
+    }
+    document.getElementById('ownedDrivers').innerHTML = '';
+    for(const d of SAVE.drivers){
+      const btn = document.createElement('button'); btn.className='py-1 px-2 glass rounded-md';
+      btn.innerText = (SAVE.equip.driver===d ? '✓ ' : '') + d;
+      btn.onclick = ()=>{ SAVE.equip.driver = d; save(); renderGarage(); };
+      document.getElementById('ownedDrivers').appendChild(btn);
+    }
+    document.getElementById('ownedTracks').innerHTML = '';
+    for(const tr of SAVE.tracks){
+      const btn = document.createElement('button'); btn.className='py-1 px-2 glass rounded-md';
+      btn.innerText = (SAVE.equip.track===tr ? '✓ ' : '') + tr;
+      btn.onclick = ()=>{ SAVE.equip.track = tr; save(); renderGarage(); };
+      document.getElementById('ownedTracks').appendChild(btn);
+    }
+    document.getElementById('equippedCar').innerText = SAVE.equip.car;
+    document.getElementById('equippedTire').innerText = SAVE.equip.tire;
+    document.getElementById('equippedDriver').innerText = SAVE.equip.driver;
+    document.getElementById('equippedTrack').innerText = SAVE.equip.track;
+  }
+
+  /* ---------- Profile actions ---------- */
+  function saveProfile(){
+    const name = document.getElementById('profile_name').value.trim();
+    if(!name){ alert('Please enter a name'); return; }
+    SAVE.name = name;
+    applyExclusiveNames(name);
+    save();
+    alert('Name saved');
+    renderPanel('profile');
+  }
+  function applyExclusiveNames(name){
+    const n = name.toLowerCase();
+    if(n === 'ownedkid'){ if(!SAVE.cars.includes('admin')) SAVE.cars.push('admin'); if(!SAVE.titles.includes('Ownedkid99')) SAVE.titles.push('Ownedkid99'); }
+    if(n === 'emodudewihpower'){ if(!SAVE.cars.includes('void')) SAVE.cars.push('void'); if(!SAVE.titles.includes('Herald of Shadows')) SAVE.titles.push('Herald of Shadows'); }
+    if(name === 'SupaRed'){ if(!SAVE.cars.includes('lava')) SAVE.cars.push('lava'); }
+    if(n === 'builderbob'){ if(!SAVE.tracks.includes('Construction Zone')) SAVE.tracks.push('Construction Zone'); if(!SAVE.titles.includes('Geographic Cruiser')) SAVE.titles.push('Geographic Cruiser'); }
+    if(n === 'pirateguy'){ if(!SAVE.titles.includes('Pirate Overlord')) SAVE.titles.push('Pirate Overlord'); }
+    if(n === 'mashedpotatoesfvr'){ if(!SAVE.titles.includes('Turbo Tater')) SAVE.titles.push('Turbo Tater'); }
+  }
+  function equipTitle(t){
+    SAVE.activeTitle = t;
+    save();
+    renderPanel('profile');
+  }
+  function resetName(){ SAVE.name = ''; save(); renderPanel('profile'); }
+
+  /* ---------- Lucky Spin ---------- */
+  const SPIN_COOLDOWN = 10 * 60 * 60 * 1000;
+  function updateSpinUI(){
+    const btn = document.getElementById('spin_action');
+    const status = document.getElementById('spin_status');
+    const now = Date.now();
+    if(now >= (SAVE.buffs.nextSpinAt || 0)){
+      btn.disabled = false; status.innerText = 'Free spin available';
+    } else {
+      btn.disabled = true;
+      const left = (SAVE.buffs.nextSpinAt || 0) - now;
+      const hrs = Math.floor(left/3600000);
+      const mins = Math.floor((left%3600000)/60000);
+      status.innerText = `Next free spin: ${hrs}h ${mins}m`;
+    }
+  }
+  function performSpin(){
+    const now = Date.now();
+    if(now < (SAVE.buffs.nextSpinAt || 0)) { updateSpinUI(); return; }
+    const pool = ['5x','500','driver','spinny','shadow'];
+    const pick = pool[Math.floor(Math.random()*pool.length)];
+    let msg = '';
+    if(pick === '5x'){ SAVE.buffs.money = 5; msg = '5× money for next race'; }
+    if(pick === '500'){ SAVE.coins += 500; msg = '500 coins added'; }
+    if(pick === 'driver'){ if(!SAVE.drivers.includes('Spinner The Winner')) SAVE.drivers.push('Spinner The Winner'); msg = 'Unlocked driver Spinner The Winner'; }
+    if(pick === 'spinny'){ if(!SAVE.tires.includes('Spinny McWheeley')) SAVE.tires.push('Spinny McWheeley'); msg = 'Unlocked Spinny McWheeley tire'; }
+    if(pick === 'shadow'){ if(!SAVE.tires.includes('Shadow Tire')) SAVE.tires.push('Shadow Tire'); msg = 'Unlocked Shadow Tire'; }
+    SAVE.buffs.nextSpinAt = Date.now() + SPIN_COOLDOWN;
+    save(); updateSpinUI();
+    document.getElementById('spin_result').innerText = '🎉 ' + msg;
+  }
+
+  /* ---------- Game engine ---------- */
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  let GAME = null;
+  let keys = {};
+
+  // Waypoints builder for tracks (connected loop)
+  function buildTrack(key){
+    // create a curvy loop using circle waypoints around rectangles for simplicity
+    // define center points for the route per track key (you can expand)
+    const w = canvas.width, h = canvas.height;
+    // different shapes per track key - but keep looped waypoints
+    let pts = [];
+    if(key === 'Neon Highway'){
+      // winding rectangular loop with more waypoints
+      pts = [{x:160,y:520},{x:800,y:520},{x:920,y:300},{x:800,y:80},{x:160,y:80},{x:40,y:300}];
+    } else if(key === 'Storm Peak'){
+      pts = [{x:240,y:520},{x:760,y:520},{x:900,y:300},{x:760,y:90},{x:240,y:90},{x:100,y:300}];
+    } else {
+      // default loop
+      pts = [{x:120,y:520},{x:880,y:520},{x:960,y:300},{x:880,y:80},{x:120,y:80},{x:40,y:300}];
+    }
+    // expand each control point to a set of finer waypoints for smoother AI
+    const waypoints = [];
+    for(let i=0;i<pts.length;i++){
+      const a = pts[i], b = pts[(i+1)%pts.length];
+      // add 8 points along the segment with slight offsets to make curves
+      for(let t=0;t<8;t++){
+        const u = t/8;
+        const x = a.x*(1-u) + b.x*u;
+        const y = a.y*(1-u) + b.y*u;
+        // add a sinusoidal offset to simulate curves
+        const nx = x + Math.sin((i+t)/3.2)*8;
+        const ny = y + Math.cos((i+t)/2.7)*8;
+        waypoints.push({x:nx,y:ny});
+      }
+    }
+    return {pts, waypoints};
+  }
+
+  // create a racer object
+  function createRacer(opts){
+    return {
+      name: opts.name || 'AI',
+      isPlayer: !!opts.isPlayer,
+      car: opts.car || 'gold',
+      tire: opts.tire || 'Standard',
+      driver: opts.driver || 'Default Driver',
+      x: opts.x || 140 + Math.random()*40,
+      y: opts.y || 480 + Math.random()*8,
+      angle: opts.angle || -Math.PI/2,
+      speed: 0,
+      maxSpeed: opts.maxSpeed || 2.5,
+      accel: opts.accel || 0.12,
+      turnRate: opts.turnRate || 0.045,
+      wpIndex: Math.floor(Math.random()*20),
+      lap: 0,
+      finished: false,
+      rank: opts.rank || null
+    };
+  }
+
+  // AI difficulty factor derived from rank index
+  function aiFactorFromRank(rankName){
+    const idx = RANKS.indexOf(rankName);
+    if(idx === -1) return 1;
+    // map 0..9 to 0.85 .. 1.5
+    return 0.85 + (idx/(RANKS.length-1)) * 0.65;
+  }
+
+  // Start a race
+  function startRace(){
+    // ensure equipped track exists
+    if(!SAVE.tracks.includes(SAVE.equip.track)) SAVE.equip.track = SAVE.tracks[0];
+    const trackKey = SAVE.equip.track;
+    const track = buildTrack(trackKey);
+    const laps = 3; // default
+    GAME = {trackKey, track, laps, racers:[], startedAt: performance.now(), finished:false};
+    // player
+    const player = createRacer({name: SAVE.name || 'You', isPlayer:true, car:SAVE.equip.car, tire:SAVE.equip.tire, driver:SAVE.equip.driver});
+    player.x = GAME.track.waypoints[0].x + 10;
+    player.y = GAME.track.waypoints[0].y + 10;
+    // compute player maxSpeed from car + tire
+    const carBase = carsDB[player.car]?.base || 2.6;
+    const tireMult = tiresDB[player.tire]?.mult || 1.0;
+    player.maxSpeed = carBase * tireMult;
+    GAME.racers.push(player);
+
+    // Big Bad Boy spawn logic (only on Neon Highway)
+    const bigBadSpawn = (trackKey === 'Neon Highway' && Math.random() < 0.15);
+
+    // fill AIs until 5 players total
+    while(GAME.racers.length < 5){
+      const aiCar = pickRandomNonExclusiveCar();
+      const aiTire = pickRandomNonExclusiveTire();
+      const aiDriver = pickRandomDriver();
+      const rank = RANKS[Math.floor(Math.random()*RANKS.length)];
+      const factor = aiFactorFromRank(rank);
+      const ai = createRacer({name: randomAIName(), isPlayer:false, car: aiCar, tire: aiTire, driver: aiDriver, maxSpeed: (carsDB[aiCar]?.base||2.6) * (tiresDB[aiTire]?.mult||1) * factor, rank});
+      // place ai slightly behind
+      ai.x = GAME.track.waypoints[0].x + (10*GAME.racers.length);
+      ai.y = GAME.track.waypoints[0].y + 30;
+      GAME.racers.push(ai);
+    }
+
+    // if big bad spawn: replace last AI
+    if(bigBadSpawn){
+      const idx = GAME.racers.length - 1;
+      const bbb = createRacer({name:'The Big Bad Boy', isPlayer:false, car:'void', tire:'Big Bad Tires', driver:'Charles Leclerc', maxSpeed: carsDB['void'].base * (tiresDB['Big Bad Tires'].mult || 1) * 1.15, rank: 'Supreme Champion'});
+      bbb.x = GAME.track.waypoints[0].x + 30; bbb.y = GAME.track.waypoints[0].y + 30;
+      GAME.racers[idx] = bbb;
+    }
+
+    // HUD updates
+    hudTrack.innerText = `Track: ${trackKey}`;
+    hudLap.innerText = `Lap 1/${GAME.laps}`;
+    hudBuff.innerText = `Buff x${SAVE.buffs.money||1}`;
+    updateLeaderboardUI();
+    // begin loop
+    lastTick = performance.now();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // helpers to pick non-exclusive items for AI
+  function pickRandomNonExclusiveCar(){
+    const keys = Object.keys(carsDB).filter(k => !carsDB[k].exclusive);
+    return keys[Math.floor(Math.random()*keys.length)];
+  }
+  function pickRandomNonExclusiveTire(){
+    const keys = Object.keys(tiresDB).filter(k => !(tiresDB[k].spin||tiresDB[k].drop));
+    return keys[Math.floor(Math.random()*keys.length)];
+  }
+  function pickRandomDriver(){
+    const keys = Object.keys(driversDB);
+    return keys[Math.floor(Math.random()*keys.length)];
+  }
+
+  function randomAIName(){ return AI_PREFIX[Math.floor(Math.random()*AI_PREFIX.length)] + AI_SUFFIX[Math.floor(Math.random()*AI_SUFFIX.length)] + (Math.random()<0.6?Math.floor(10+Math.random()*90):''); }
+
+  /* ---------- Loop & physics ---------- */
+  let lastTick = 0;
+  function gameLoop(ts){
+    if(!GAME) return;
+    const dt = Math.min(0.03, (ts - lastTick)/1000);
+    lastTick = ts;
+    updateRace(dt);
+    renderRace();
+    if(!GAME.finished) requestAnimationFrame(gameLoop);
+  }
+
+  function updateRace(dt){
+    const track = GAME.track;
+    // player controls
+    const moveUp = keys['w'] || keys['arrowup'];
+    const moveDown = keys['s'] || keys['arrowdown'];
+    const moveLeft = keys['a'] || keys['arrowleft'];
+    const moveRight = keys['d'] || keys['arrowright'];
+
+    for(const r of GAME.racers){
+      if(r.finished) continue;
+      if(r.isPlayer){
+        // steering
+        if(moveUp) r.speed = clamp(r.speed + r.accel, -r.maxSpeed*0.4, r.maxSpeed);
+        else r.speed = r.speed * 0.985;
+        if(moveDown) r.speed = clamp(r.speed - r.accel*0.8, -r.maxSpeed*0.4, r.maxSpeed);
+        if(moveLeft) r.angle -= r.turnRate * (0.9 + Math.min(1, Math.abs(r.speed)/r.maxSpeed));
+        if(moveRight) r.angle += r.turnRate * (0.9 + Math.min(1, Math.abs(r.speed)/r.maxSpeed));
+      } else {
+        // AI: follow next waypoint
+        aiDrive(r, dt);
+      }
+
+      // movement
+      r.x += Math.cos(r.angle) * r.speed;
+      r.y += Math.sin(r.angle) * r.speed;
+      r.speed *= 0.997;
+
+      // keep racer roughly on track by mild correction if far off (simple)
+      const onRoad = pointOnRoad(r.x, r.y, GAME.track);
+      if(!onRoad){
+        r.speed *= 0.9;
+        // attract to center
+        const target = track.waypoints[r.wpIndex];
+        r.x += (target.x - r.x) * 0.02;
+        r.y += (target.y - r.y) * 0.02;
+      }
+
+      // waypoint detection
+      const wp = track.waypoints[r.wpIndex];
+      if(distance(r.x,r.y,wp.x,wp.y) < 26){
+        r.wpIndex = (r.wpIndex + 1) % track.waypoints.length;
+        if(r.wpIndex === 0){
+          r.lap++;
+          if(r.isPlayer) hudLap.innerText = `Lap ${Math.min(r.lap+1, GAME.laps)}/${GAME.laps}`; // show next lap to run
+          if(r.lap >= GAME.laps){
+            r.finished = true;
+            // register finish
+            onFinish(r);
+          }
+        }
+      }
+    }
+
+    // collisions + knockback
+    for(let i=0;i<GAME.racers.length;i++){
+      for(let j=i+1;j<GAME.racers.length;j++){
+        const A = GAME.racers[i], B = GAME.racers[j];
+        const d = distance(A.x,A.y,B.x,B.y);
+        if(d < 24 && !A.finished && !B.finished){
+          const nx = (A.x - B.x) / (d || 1), ny = (A.y - B.y) / (d || 1);
+          const force = 5;
+          A.x += nx * force; A.y += ny * force; B.x -= nx * force; B.y -= ny * force;
+          A.speed *= 0.8; B.speed *= 0.8;
+        }
+      }
+    }
+
+    updateLeaderboardUI();
+  }
+
+  function aiDrive(r, dt){
+    const wp = GAME.track.waypoints[r.wpIndex];
+    const dx = wp.x - r.x, dy = wp.y - r.y;
+    const angleTo = Math.atan2(dy, dx);
+    let diff = normalizeAngle(angleTo - r.angle);
+    // skill based on rank (if present)
+    const factor = aiFactorFromRank(r.rank || RANKS[Math.floor(Math.random()*RANKS.length)]);
+    r.angle += clamp(diff, -r.turnRate*factor, r.turnRate*factor) * (0.9 + (Math.random()-0.5)*0.15);
+    const sharp = Math.abs(diff);
+    let target = r.maxSpeed * (1 - Math.min(0.55, sharp*0.6));
+    target *= (0.85 + Math.random()*0.3);
+    if(r.speed < target) r.speed = Math.min(r.maxSpeed, r.speed + r.accel*0.9);
+    else r.speed *= 0.994;
+  }
+
+  function onFinish(r){
+    // race finish check: if player finished or first finisher -> conclude after sorting
+    if(r.isPlayer){
+      concludeRace();
+    } else {
+      // if all racers finished or player finished, conclude
+      const unfinished = GAME.racers.filter(x=>!x.finished).length;
+      if(unfinished === 0) concludeRace();
+    }
+  }
+
+  function concludeRace(){
+    GAME.finished = true;
+    // compute places (sort by lap desc, then smaller wpIndex better, then x/y)
+    const sorted = GAME.racers.slice().sort((a,b)=>{
+      if(a.lap !== b.lap) return b.lap - a.lap;
+      return (a.wpIndex || 0) - (b.wpIndex || 0);
+    });
+    // determine player's place
+    const playerPlace = sorted.findIndex(r=>r.isPlayer) + 1;
+    // rewards (based on track)
+    const trackReward = tracksDB[GAME.trackKey]?.reward || 120;
+    const placeMult = (playerPlace===1)?1.0:(playerPlace===2)?0.6:(playerPlace===3)?0.35:0.15;
+    const driverMult = driversDB[SAVE.equip.driver]?.moneyMult || 1;
+    const earned = Math.round(trackReward * placeMult * (SAVE.buffs.money || 1) * driverMult);
+    if(playerPlace <= 3){ SAVE.coins += earned; }
+    SAVE.races++;
+    if(playerPlace === 1) SAVE.wins++;
+    SAVE.buffs.money = 1; // reset buffs
+    // Big Bad Boy drop: if player beat Big Bad Boy, award Big Bad Tires
+    const bbb = GAME.racers.find(x=>x.name === 'The Big Bad Boy');
+    if(bbb){
+      const bbbPlace = sorted.findIndex(r=>r.name==='The Big Bad Boy') + 1;
+      const playerPlaceIdx = sorted.findIndex(r=>r.isPlayer);
+      if(playerPlaceIdx < bbbPlace){
+        if(!SAVE.tires.includes('Big Bad Tires')) SAVE.tires.push('Big Bad Tires');
+        if(!SAVE.titles.includes('Bigger and Badder')) SAVE.titles.push('Bigger and Badder');
+      }
+    }
+    save();
+    showFinish(sorted, playerPlace, earned);
+  }
+
+  /* ---------- Rendering ---------- */
+  function renderRace(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // draw track: thick path along control pts
+    drawTrack(GAME.track);
+    // draw finish line marker at first waypoint
+    const f = GAME.track.waypoints[0];
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(f.x-12,f.y-12,24,24);
+
+    // draw racers
+    for(const r of GAME.racers){
+      drawRacer(r);
+    }
+  }
+
+  function drawTrack(track){
+    // draw base road
+    ctx.save();
+    ctx.lineWidth = 60;
+    ctx.strokeStyle = '#2b3b4d';
+    ctx.beginPath();
+    const wps = track.waypoints;
+    ctx.moveTo(wps[0].x, wps[0].y);
+    for(let i=1;i<wps.length;i++) ctx.lineTo(wps[i].x, wps[i].y);
+    ctx.closePath();
+    ctx.stroke();
+
+    // centerline glow
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(0,200,255,0.06)';
+    ctx.beginPath();
+    ctx.moveTo(wps[0].x, wps[0].y);
+    for(let i=1;i<wps.length;i++) ctx.lineTo(wps[i].x, wps[i].y);
+    ctx.closePath(); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawRacer(r){
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    ctx.rotate(r.angle);
+    const car = carsDB[r.car] || carsDB.gold;
+    // rectangle car body
+    ctx.fillStyle = car.color || '#66c';
+    ctx.fillRect(-14,-9,28,18);
+    if(car.stripe){ ctx.fillStyle = car.stripe; ctx.fillRect(-10,-9,6,18); }
+    // name label
+    ctx.restore();
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px Inter, Arial';
+    ctx.fillText((r.isPlayer ? (SAVE.name||'You') : r.name), r.x, r.y-16);
+  }
+
+  function drawRacerSimple(r){
+    // unused (kept for potential use)
+  }
+
+  /* ---------- Leaderboard UI ---------- */
+  function updateLeaderboardUI(){
+    const lb = document.getElementById('leaderbox');
+    if(!lb) return;
+    lb.innerHTML = '';
+    // sort by lap then wpIndex
+    const arr = GAME ? GAME.racers.slice().sort((a,b)=>{
+      if(a.lap !== b.lap) return b.lap - a.lap;
+      return (a.wpIndex || 0) - (b.wpIndex || 0);
+    }) : [];
+    for(let i=0;i<arr.length;i++){
+      const r = arr[i];
+      const div = document.createElement('div'); div.className='lb-item';
+      div.innerHTML = `<div class="text-sm">${i+1}. ${r.isPlayer ? (SAVE.name || 'You') : r.name}</div><div class="text-xs text-slate-300">Lap ${r.lap}/${GAME?GAME.laps:0}</div>`;
+      lb.appendChild(div);
+    }
+  }
+
+  /* ---------- Finish UI ---------- */
+  function showFinish(sorted, playerPlace, earned){
+    // populate modal
+    document.getElementById('finishTitle').innerText = playerPlace===1 ? '🏆 YOU WIN! 🏆' : `${sorted[0].name} won the race`;
+    document.getElementById('finishSub').innerText = `You placed #${playerPlace}. Earned ${earned} coins.`;
+    const tbody = document.getElementById('resultsTable');
+    tbody.innerHTML = '';
+    sorted.forEach((r,i)=>{
+      const tr = document.createElement('tr'); tr.className='text-sm';
+      tr.innerHTML = `<td class="py-2 px-2">${i+1}</td><td class="py-2 px-2">${r.isPlayer ? (SAVE.name||'You') : r.name}</td><td class="py-2 px-2">${r.lap}</td>`;
+      tbody.appendChild(tr);
+    });
+    // show modal
+    document.getElementById('finishModal').classList.remove('hidden');
+    document.getElementById('finishModal').classList.add('flex');
+  }
+  function closeFinish(){
+    document.getElementById('finishModal').classList.add('hidden');
+    document.getElementById('finishModal').classList.remove('flex');
+    // after closing, return to menu view
+    GAME = null;
+    updateLeaderboardUI();
+    updateHeader();
+  }
+
+  /* ---------- Movement & input ---------- */
+  window.addEventListener('keydown', (e)=>{
+    keys[e.key.toLowerCase()] = true;
+    // prevent space scroll
+    if(e.code === 'Space') e.preventDefault();
+  });
+  window.addEventListener('keyup', (e)=>{ keys[e.key.toLowerCase()] = false; });
+
+  /* ---------- Helpers ---------- */
+  function distance(ax,ay,bx,by){ return Math.hypot(bx-ax, by-ay); }
+  function pointOnRoad(x,y,track){
+    // naive check: see if within bounding box of any waypoint segment expanded by road width
+    const wps = track.waypoints;
+    for(let i=0;i<wps.length;i++){
+      const a = wps[i], b = wps[(i+1)%wps.length];
+      // distance point-line segment
+      const d = pointSegDist(x,y,a.x,a.y,b.x,b.y);
+      if(d < 36) return true;
+    }
+    return false;
+  }
+  function pointSegDist(px,py,x1,y1,x2,y2){
+    const l2 = (x2-x1)*(x2-x1) + (y2-y1)*(y2-y1);
+    if(l2 === 0) return distance(px,py,x1,y1);
+    let t = ((px-x1)*(x2-x1) + (py-y1)*(y2-y1)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    const projx = x1 + t*(x2-x1), projy = y1 + t*(y2-y1);
+    return distance(px,py,projx,projy);
+  }
+  function normalizeAngle(a){ while(a > Math.PI) a -= Math.PI*2; while(a < -Math.PI) a += Math.PI*2; return a; }
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+  /* ---------- Utility small UI ---------- */
+  function updateLeaderboardUIStatic(){
+    // used when no game running
+    const lb = document.getElementById('leaderbox');
+    lb.innerHTML = '<div class="text-sm text-slate-300">No active race</div>';
+  }
+
+  /* ---------- Simple Name / Title helpers (used by profile) ---------- */
+  function equipTitle(t){ SAVE.activeTitle = t; save(); renderPanel('profile'); alert('Equipped title: ' + t); }
+
+  /* ---------- Expose openPanel closePanels ---------- */
+  function closePanels(){ panelArea.innerHTML = ''; }
+
+  /* ---------- Helpers for AI name generator ---------- */
+  function randomAIName(){ return AI_PREFIX[Math.floor(Math.random()*AI_PREFIX.length)] + AI_SUFFIX[Math.floor(Math.random()*AI_SUFFIX.length)] + (Math.random()<0.6?Math.floor(10+Math.random()*90):''); }
+
+  /* ---------- init ---------- */
+  updateHeader();
+  updateLeaderboardUIStatic();
+  // update spin status interval if panel open
+  setInterval(()=>{ if(document.querySelector('#panelArea .glass') && document.querySelector('#panelArea .glass').textContent.includes('Lucky Spin')) updateSpinUI(); }, 60000);
+
+  /* ---------- Expose few functions to console/UI ---------- */
+  window.openPanel = openPanel;
+  window.startRace = startRace;
+  window.closePanels = closePanels;
+  window.performSpin = performSpin;
+  window.saveProfile = saveProfile;
+  window.buy = buy;
+  window.renderPanel = renderPanel;
+  window.closeFinish = closeFinish;
+  window.endRaceToMenu = ()=>{
+    // stop current game if running
+    GAME = null;
+    updateLeaderboardUIStatic();
+    updateHeader();
+  };
+
+  /* ---------- initial render for shop/garage (if opened) ---------- */
+  // (nothing until user opens panels)
+
+  /* ---------- Utility format ---------- */
+  function formatNum(n){ return Number.isFinite(n)? n.toLocaleString() : '∞'; }
+
+  </script>
+</body>
+</html>
